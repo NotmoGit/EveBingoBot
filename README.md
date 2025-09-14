@@ -31,19 +31,19 @@ Give extra card regeneration tokens to a player.
 
 ## Installation
 
-# config.env
+### config.env
 
 Needs you bot token and the discord IDs for admins
 
-# status.json
+### status.json
 
 Needs to not be an empty file when the bot is loaded
 
-# tasks.json
+### tasks.json
 
 Needs to not be empty - not tested with under 25 tasks but why would you do that.
 
-# dependencies
+### dependencies
 
 discord, discord.ext, json, random, os, dotenv, PIL, io, ast, textwrap
 
