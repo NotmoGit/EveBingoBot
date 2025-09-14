@@ -1,7 +1,7 @@
 # EveBingoBot
 An Eve Online Discord bot for generating and tracking an Eve themed bingo game
 
-##General Commands:
+## General Commands:
 !rules
 Read the rules
 !enter
@@ -17,7 +17,7 @@ Show progress of yourself or another player.
 !mycard
 Show your current bingo card with completed squares highlighted.
 
-##Admin Commands:
+## Admin Commands:
 !newgame
 Start a new game. Clears all players and cards.
 !verify [player] [index]
@@ -29,25 +29,25 @@ Reset a specific square of a player.
 !addtokens [player] [amount]
 Give extra card regeneration tokens to a player.
 
-##Installation
+## Installation
 
-#config.env
+# config.env
 
 Needs you bot token and the discord IDs for admins
 
-#status.json
+# status.json
 
 Needs to not be an empty file when the bot is loaded
 
-#tasks.json
+# tasks.json
 
 Needs to not be empty - not tested with under 25 tasks but why would you do that.
 
-#dependencies
+# dependencies
 
 discord, discord.ext, json, random, os, dotenv, PIL, io, ast, textwrap
 
-##TODO
+## TODO
 - It's not really catching errors correctly
 - @everyone (or @admin) when the first line, row, diagonal is completed
 - create a log of all the completions so that an admin can DM the bot and get the list to go through
