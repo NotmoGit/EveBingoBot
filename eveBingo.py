@@ -8,6 +8,8 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import ast
 import textwrap
+import datetime
+import shutil
 
 # Load bot token from config.env
 load_dotenv(dotenv_path="config.env")
@@ -155,7 +157,30 @@ def generate_card_image(card):
     buf.seek(0)
     return buf
 
+def check_winner(player_card):
+    """Return list of conditions met: 'row', 'col', 'diag'."""
+    winners = []
 
+    # Build a 5x5 grid of completion states
+    grid = [[player_card[f"{chr(65+c)}{r+1}"]["completed"] for c in range(5)] for r in range(5)]
+
+    # Check rows
+    for r in range(5):
+        if all(grid[r]):
+            winners.append("row")
+
+    # Check columns
+    for c in range(5):
+        if all(grid[r][c] for r in range(5)):
+            winners.append("col")
+
+    # Check diagonals
+    if all(grid[i][i] for i in range(5)):
+        winners.append("diag")
+    if all(grid[i][4-i] for i in range(5)):
+        winners.append("diag")
+
+    return winners
 # -----------------------------
 # Player Commands
 # -----------------------------
@@ -250,21 +275,19 @@ async def tokens(ctx):
     await ctx.send(f"{ctx.author.display_name}, you have {tokens} token(s) left.")
 
 @bot.command()
-async def complete(ctx, index: str, link: str = None):
-    if link is None:
-        await ctx.send("You must provide a proof link! Usage: `!complete [index] [link]`")
+async def complete(ctx, index: str = None, link: str = None):
+    """Mark a square complete with proof link, check for winners."""
+    if index is None or link is None:
+        await ctx.send("Usage: !complete <square> <zkillboard link>")
         return
 
     status = load_status()
     player_id = str(ctx.author.id)
-
     if player_id not in status["players"]:
         await ctx.send("You need to !enter first.")
         return
-
     player = status["players"][player_id]
-
-    if not player.get("card"):
+    if not player["card"]:
         await ctx.send("You need to !generate a card first.")
         return
 
@@ -280,22 +303,37 @@ async def complete(ctx, index: str, link: str = None):
         await ctx.send("Invalid link domain! Must be from zkillboard")
         return
 
-    for sq_index, sq_data in player["card"].items():
-        if sq_data.get("proof_link") == link:
-            await ctx.send("You have already used this link for another square!")
+    # Check if link already used on this player's card
+    for sq in player["card"].values():
+        if sq.get("proof_link") == link:
+            await ctx.send("This link has already been used for another square!")
             return
 
+    # Mark square complete
     player["card"][index]["completed"] = True
     player["card"][index]["proof_link"] = link
     save_status(status)
 
-    # Notify about completed lines
-    total_lines = count_completed_lines(player["card"])
-    msg = f"{ctx.author.display_name}, square {index} marked complete!"
-    if total_lines > 0:
-        msg += f" 🎉 You now have {total_lines} full line(s) completed!"
+    # Check for row/col/diag winners
+    winners = check_winner(player["card"])
+    now = datetime.datetime.utcnow().isoformat()
 
-    await ctx.send(msg)
+    if "winners" not in status:
+        status["winners"] = {"row": None, "col": None, "diag": None}
+
+    for condition in winners:
+        if status["winners"][condition] is None:
+            status["winners"][condition] = {
+                "player_id": player_id,
+                "date": now
+            }
+            await ctx.send(
+                f"🎉 {ctx.author.display_name} is the first to complete a **{condition.upper()}**! 🎉"
+            )
+
+    save_status(status)
+
+    await ctx.send(f"{ctx.author.display_name}, square {index} marked complete!")
 
 @bot.command()
 async def progress(ctx, member: discord.Member = None):
@@ -340,7 +378,7 @@ async def commands(ctx):
         "!enter": "Enter the game.",
         "!generate": "Generate a bingo card. Regenerating uses a token.",
         "!tokens": "Show how many card regeneration tokens you have left.",
-        "!complete [index] [link]": "Mark a square complete with a proof link (zkillboard link only).",
+        "!complete [index] [link]": "Mark a square complete with a proof link (zkillboard link only). e.g. 'complete A2 https://zkillboard.com/kill/29682967/'",
         "!progress [player]": "Show progress of yourself or another player.",
         "!mycard": "Show your current bingo card with completed squares highlighted."
     }
@@ -466,6 +504,52 @@ async def addtokens(ctx, member: discord.Member, amount: int):
     await ctx.send(f"{member.display_name} has been given {amount} extra token(s). They now have {player['tokens']} tokens.")
 
 @bot.command()
+async def resetwinner(ctx, condition: str = None):
+    """Admin: Reset winner records (row, col, diag, or all)."""
+    if not is_admin(ctx):
+        await ctx.send("You don't have permission to use this command.")
+        return
+
+    status = load_status()
+
+    if "winners" not in status:
+        status["winners"] = {"row": None, "col": None, "diag": None}
+
+    valid_conditions = ["row", "col", "diag"]
+
+    if condition is None:
+        await ctx.send("Usage: !resetwinner <row|col|diag|all>")
+        return
+
+    condition = condition.lower()
+
+    if condition == "all":
+        for c in valid_conditions:
+            status["winners"][c] = None
+        save_status(status)
+        await ctx.send("✅ All winners have been reset.")
+        await ctx.send("📢 All prizes are now available again! Rows, Columns, and Diagonals are back in play!")
+        return
+
+    if condition not in valid_conditions:
+        await ctx.send("Invalid condition. Use row, col, diag, or all.")
+        return
+
+    status["winners"][condition] = None
+    save_status(status)
+
+    # Admin confirmation
+    await ctx.send(f"✅ Winner for **{condition.upper()}** has been reset.")
+
+    # Public announcement
+    announcements = {
+        "row": "📢 Row prize is available again!",
+        "col": "📢 Column prize is available again!",
+        "diag": "📢 Diagonal prize is available again!"
+    }
+    await ctx.send(announcements[condition])
+
+@bot.command()
 async def admincommands(ctx):
     if not is_admin(ctx):
         await ctx.send("You do not have permission to view admin commands.")
@@ -476,7 +560,9 @@ async def admincommands(ctx):
         "!verify [player] [index]": "Verify a player's square kill link.",
         "!status": "Show the leaderboard (top 10 by completed squares).",
         "!reject [player] [index]": "Reset a specific square of a player.",
-        "!addtokens [player] [amount]": "Give extra card regeneration tokens to a player."
+        "!addtokens [player] [amount]": "Give extra card regeneration tokens to a player.",
+        "!resetwinner [row, col, diag, all]": "Resets the winners of each prize (e.g. if the kill is rejected)",
+        "!endgame": "Ends the game and announces winners"
     }
 
     embed = discord.Embed(title="EVE Bingo Admin Commands", color=0xff0000)
@@ -484,6 +570,52 @@ async def admincommands(ctx):
         embed.add_field(name=cmd, value=desc, inline=False)
 
     await ctx.send(embed=embed)
+
+@bot.command()
+async def endgame(ctx):
+    """Admin: End the game, announce winners, archive status, and reset."""
+    if not is_admin(ctx):
+        await ctx.send("You don't have permission to use this command.")
+        return
+
+    status = load_status()
+
+    # Ensure winners field exists
+    winners = status.get("winners", {"row": None, "col": None, "diag": None})
+
+    # Build winners announcement
+    def format_winner(key, data):
+        if not data:
+            return f"❌ No winner for {key.capitalize()}"
+        player_id = data.get("player_id")
+        date = data.get("date")
+        username = status["players"].get(player_id, {}).get("username", f"User {player_id}")
+        return f"🏆 {key.capitalize()} Winner: **{username}** (on {date})"
+
+    winner_msg = "\n".join([
+        format_winner("row", winners.get("row")),
+        format_winner("col", winners.get("col")),
+        format_winner("diag", winners.get("diag"))
+    ])
+
+    # Archive status.json
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = f"status_{timestamp}.json"
+    shutil.copyfile(STATUS_FILE, backup_file)
+
+    # Reset status.json
+    new_status = {"players": {}, "winners": {"row": None, "col": None, "diag": None}}
+    save_status(new_status)
+
+    # Announce game end
+    await ctx.send(
+        f"@everyone 🎉 The game is now complete! 🎉\n\n"
+        f"Here are the results:\n{winner_msg}\n\n"
+        f"A new game can now be started with `!newgame`."
+    )
+
+    # Admin confirmation in logs
+    await ctx.send(f"✅ Game ended. Status archived as `{backup_file}` and reset.")
 
 # -----------------------------
 # Run the bot
