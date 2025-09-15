@@ -19,7 +19,7 @@ Needs to not be empty - not tested with under 25 tasks but why would you do that
 
 discord, discord.ext, json, random, os, dotenv, PIL, io, ast, textwrap
 
-##Usage
+## Usage
 
 Hit !commands, !rules and !admincommands
 
