@@ -26,7 +26,7 @@ Hit !commands, !rules and !admincommands
 ## TODO
 - It's not really catching errors correctly
 - ~~@everyone (or @admin) when the first line, row, diagonal is completed~~  
-- create a log of all the completions so that an admin can DM the bot and get the list to go through  
+- ~~create a log of all the completions so that an admin can DM the bot and get the list to go through~~  
 - ~~Come up with a better name~~  
 - Create a toggle system in the tasks list for turning things on and off  
 - Consider a grouping or weighting system for the task list  
