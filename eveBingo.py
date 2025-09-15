@@ -8,7 +8,8 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import ast
 import textwrap
-import datetime
+from datetime import datetime
+from datetime import timezone
 import shutil
 
 # Load bot token from config.env
@@ -52,7 +53,7 @@ def generate_card():
             for sq, task in zip(squares, sampled)}
 
 def count_completed_squares(card):
-    return sum(1 for sq in card.values() if sq["completed"])
+    return sum(1 for sq in card.values() if sq.get("completed"))
 
 def get_completed_lines(card):
     """Return a list of completed lines (rows, columns, diagonals) for highlighting."""
@@ -61,16 +62,16 @@ def get_completed_lines(card):
     cols = "12345"
     # Rows
     for r in rows:
-        if all(card[f"{r}{c}"]["completed"] for c in cols):
+        if all(card[f"{r}{c}"].get("completed") and card[f"{r}{c}"].get("verified") for c in cols):
             lines.append([f"{r}{c}" for c in cols])
     # Columns
     for c in cols:
-        if all(card[f"{r}{c}"]["completed"] for r in rows):
+        if all(card[f"{r}{c}"].get("completed") and card[f"{r}{c}"].get("verified") for r in rows):
             lines.append([f"{r}{c}" for r in rows])
     # Diagonals
-    if all(card[f"{rows[i]}{cols[i]}"]["completed"] for i in range(5)):
+    if all(card[f"{rows[i]}{cols[i]}"].get("completed") and card[f"{rows[i]}{cols[i]}"].get("verified") for i in range(5)):
         lines.append([f"{rows[i]}{cols[i]}" for i in range(5)])
-    if all(card[f"{rows[i]}{cols[4-i]}"]["completed"] for i in range(5)):
+    if all(card[f"{rows[i]}{cols[4-i]}"].get("completed") and card[f"{rows[i]}{cols[4-i]}"].get("verified") for i in range(5)):
         lines.append([f"{rows[i]}{cols[4-i]}" for i in range(5)])
     return lines
 
@@ -79,9 +80,9 @@ def count_completed_lines(card):
 
 def generate_card_image(card):
     """Generates a bingo card image with row/column labels and better line spacing."""
-    size = 550  # slightly larger to accommodate labels
-    square_size = 100  # size of each square
-    font = ImageFont.load_default()  # replace with TTF if desired
+    size = 550
+    square_size = 100
+    font = ImageFont.load_default()
     label_font = ImageFont.load_default()
 
     img = Image.new("RGB", (size, size), color="white")
@@ -89,9 +90,9 @@ def generate_card_image(card):
 
     rows = "ABCDE"
     cols = "12345"
-    label_offset = 20  # space for labels
+    label_offset = 20
 
-    # Draw row labels (left)
+    # Draw row labels
     for i, r in enumerate(rows):
         bbox = draw.textbbox((0, 0), r, font=label_font)
         text_width = bbox[2] - bbox[0]
@@ -99,7 +100,7 @@ def generate_card_image(card):
         y = label_offset + i * square_size + (square_size - text_height) / 2
         draw.text((5, y), r, fill="black", font=label_font)
 
-    # Draw column labels (top)
+    # Draw column labels
     for j, c in enumerate(cols):
         bbox = draw.textbbox((0, 0), c, font=label_font)
         text_width = bbox[2] - bbox[0]
@@ -151,7 +152,6 @@ def generate_card_image(card):
                 draw.text((x, y_offset), line, fill="black", font=font)
                 y_offset += lh + line_spacing
 
-    # Save to bytes buffer
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -161,25 +161,21 @@ def check_winner(player_card):
     """Return list of conditions met: 'row', 'col', 'diag'."""
     winners = []
 
-    # Build a 5x5 grid of completion states
-    grid = [[player_card[f"{chr(65+c)}{r+1}"]["completed"] for c in range(5)] for r in range(5)]
+    grid = [[player_card[f"{chr(65+r)}{c+1}"].get("completed") and player_card[f"{chr(65+r)}{c+1}"].get("verified") for c in range(5)] for r in range(5)]
 
-    # Check rows
+    # Rows
     for r in range(5):
         if all(grid[r]):
             winners.append("row")
-
-    # Check columns
+    # Columns
     for c in range(5):
         if all(grid[r][c] for r in range(5)):
             winners.append("col")
-
-    # Check diagonals
+    # Diagonals
     if all(grid[i][i] for i in range(5)):
         winners.append("diag")
     if all(grid[i][4-i] for i in range(5)):
         winners.append("diag")
-
     return winners
 # -----------------------------
 # Player Commands
@@ -187,17 +183,12 @@ def check_winner(player_card):
 
 @bot.command()
 async def enter(ctx):
-    """Add a player to the list."""
     status = load_status()
     player_id = str(ctx.author.id)
     if player_id in status["players"]:
         await ctx.send(f"{ctx.author.display_name}, you are already entered!")
         return
-    status["players"][player_id] = {
-        "username": ctx.author.display_name,
-        "tokens": TOKEN_START,
-        "card": None
-    }
+    status["players"][player_id] = {"username": ctx.author.display_name, "tokens": TOKEN_START, "card": None}
     save_status(status)
     await ctx.send(f"{ctx.author.display_name} has been entered into the game!")
 
@@ -312,11 +303,12 @@ async def complete(ctx, index: str = None, link: str = None):
     # Mark square complete
     player["card"][index]["completed"] = True
     player["card"][index]["proof_link"] = link
+    player["card"][index]["submitted_at"] = datetime.now(timezone.utc).isoformat()
     save_status(status)
 
     # Check for row/col/diag winners
     winners = check_winner(player["card"])
-    now = datetime.datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     if "winners" not in status:
         status["winners"] = {"row": None, "col": None, "diag": None}
@@ -403,8 +395,10 @@ async def newgame(ctx):
     save_status({"players": {}})
     await ctx.send("New game started! All players and cards cleared.")
 
+
 @bot.command()
 async def verify(ctx, member: discord.Member, index: str):
+    """Admin: Verify a player's square and check winners."""
     if not is_admin(ctx):
         await ctx.send("You are not authorized!")
         return
@@ -416,7 +410,7 @@ async def verify(ctx, member: discord.Member, index: str):
         return
 
     player = status["players"][player_id]
-    if not player["card"]:
+    if not player.get("card"):
         await ctx.send("Player has no card.")
         return
 
@@ -427,19 +421,22 @@ async def verify(ctx, member: discord.Member, index: str):
 
     player["card"][index]["verified"] = True
     save_status(status)
-    await ctx.send(f"Verified {member.display_name}'s square {index}.")
 
-@verify.error
-async def verify_error(ctx, error):
-    if isinstance(error, commands.MemberNotFound):
-        await ctx.send(
-            "Member not found! Make sure you mention the player first, then the square index.\n"
-            "Correct usage: `!verify @player C3`"
-        )
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("Missing arguments! Usage: `!verify @player [index]`")
-    else:
-        raise error
+    await ctx.send(f"✅ Verified {member.display_name}'s square {index}.")
+
+    # Check for winners now that this square is verified
+    winners = check_winner(player["card"])
+    now = datetime.now(timezone.utc).isoformat()
+    if "winners" not in status:
+        status["winners"] = {"row": None, "col": None, "diag": None}
+
+    for condition in winners:
+        if status["winners"][condition] is None:
+            status["winners"][condition] = {"player_id": player_id, "date": now}
+            await ctx.send(f"🎉 {member.display_name} is the first to complete a **{condition.upper()}**! 🎉")
+
+    save_status(status)
+    await ctx.send(f"{member.mention}, your square {index} has been verified!")
 
 @bot.command()
 async def status(ctx):
@@ -550,6 +547,53 @@ async def resetwinner(ctx, condition: str = None):
     await ctx.send(announcements[condition])
 
 @bot.command()
+async def verifystatus(ctx):
+    """List all completed squares that are not yet verified, ordered by submission time."""
+    status = load_status()
+    unverified_squares = []
+
+    for player_id, player in status["players"].items():
+        card = player.get("card")
+        if not card:
+            continue
+        for index, square in card.items():
+            if square.get("completed") and not square.get("verified"):
+                submitted_at = square.get("submitted_at")
+                proof_link = square.get("proof_link", "No link")
+                if submitted_at:
+                    unverified_squares.append({
+                        "player_name": player.get("username", f"User {player_id}"),
+                        "index": index,
+                        "task": square.get("task"),
+                        "submitted_at": submitted_at,
+                        "proof_link": proof_link
+                    })
+
+    # Sort by submission time
+    unverified_squares.sort(key=lambda x: x["submitted_at"])
+
+    if not unverified_squares:
+        await ctx.send("✅ All completed squares have been verified.")
+        return
+
+    msg_lines = ["⏳ **Unverified Squares (oldest first)** ⏳"]
+    for sq in unverified_squares:
+        msg_lines.append(
+            f"{sq['submitted_at']} - {sq['player_name']} - {sq['index']} - {sq['task']} - {sq['proof_link']}"
+        )
+
+    # Send in chunks if too long
+    chunk_size = 2000
+    msg = ""
+    for line in msg_lines:
+        if len(msg) + len(line) + 1 > chunk_size:
+            await ctx.send(msg)
+            msg = ""
+        msg += line + "\n"
+    if msg:
+        await ctx.send(msg)
+
+@bot.command()
 async def admincommands(ctx):
     if not is_admin(ctx):
         await ctx.send("You do not have permission to view admin commands.")
@@ -562,6 +606,7 @@ async def admincommands(ctx):
         "!reject [player] [index]": "Reset a specific square of a player.",
         "!addtokens [player] [amount]": "Give extra card regeneration tokens to a player.",
         "!resetwinner [row, col, diag, all]": "Resets the winners of each prize (e.g. if the kill is rejected)",
+        "!verifystatus": "Returns a list of all unverified entries",
         "!endgame": "Ends the game and announces winners"
     }
 
@@ -599,7 +644,7 @@ async def endgame(ctx):
     ])
 
     # Archive status.json
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     backup_file = f"status_{timestamp}.json"
     shutil.copyfile(STATUS_FILE, backup_file)
 
