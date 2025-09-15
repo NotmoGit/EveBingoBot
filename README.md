@@ -17,7 +17,7 @@ Needs to not be empty - not tested with under 25 tasks but why would you do that
 
 ### dependencies
 
-discord, discord.ext, json, random, os, dotenv, PIL, io, ast, textwrap
+discord, discord.ext, json, random, os, dotenv, PIL, io, ast, textwrap, datetime
 
 ## Usage
 
