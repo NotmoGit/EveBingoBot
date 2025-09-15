@@ -31,4 +31,4 @@ Hit !commands, !rules and !admincommands
 - Create a toggle system in the tasks list for turning things on and off  
 - Consider a grouping or weighting system for the task list  
 - Create a command to "query" a square and get the kill mail back  
-- Create a history system to save the status.json when a new game is created  
+- ~~Create a history system to save the status.json when a new game is created~~
